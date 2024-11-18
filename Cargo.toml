@@ -1,0 +1,49 @@
+[package]
+name          = "heph"
+description   = "Heph is an actor framework based on asynchronous functions."
+version       = "0.5.0"
+publish       = false # In development.
+authors       = ["Thomas de Zeeuw <thomasdezeeuw@gmail.com>"]
+license       = "MIT"
+documentation = "https://docs.rs/heph"
+repository    = "https://github.com/Thomasdezeeuw/heph"
+readme        = "README.md"
+keywords      = ["actor", "async", "functions"]
+categories    = ["asynchronous", "web-programming"]
+include       = ["/Cargo.toml", "/src/**/*.rs", "/README.md", "/LICENSE"]
+edition       = "2021"
+
+[features]
+default = []
+
+# Feature that enables the `test` module.
+test = ["getrandom"]
+
+[dependencies]
+
+[dev-dependencies]
+# NOTE: the following two dependencies may only used by a limited number of examples.
+heph-rt           = { version = "0.5.0", path = "./rt", default-features = false }
+std-logger        = { version = "0.5.3", default-features = false }
+
+[[test]]
+name    = "examples"
+
+[[test]]
+name    = "functional"
+required-features = ["test"]
+
+[[test]]
+name    = "message_loss"
+required-features = ["test"]
+
+[workspace]
+members = [
+  "http",
+  "inbox",
+  "remote",
+  "rt",
+  "tools",
+
+  "benches/timers_container",
+]

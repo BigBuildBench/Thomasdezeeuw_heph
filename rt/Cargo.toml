@@ -1,0 +1,40 @@
+[package]
+name          = "heph-rt"
+description   = "Heph-rt is a speciailised runtime for Heph's actor."
+version       = "0.5.0"
+publish       = false # In development.
+authors       = ["Thomas de Zeeuw <thomasdezeeuw@gmail.com>"]
+license       = "MIT"
+documentation = "https://docs.rs/heph-rt"
+repository    = "https://github.com/Thomasdezeeuw/heph"
+readme        = "README.md"
+keywords      = ["actor", "runtime", "async", "functions"]
+categories    = ["asynchronous"]
+include       = ["/Cargo.toml", "/src/**/*.rs", "/README.md", "/LICENSE"]
+edition       = "2021"
+
+[features]
+default = []
+
+# Feature that enables the `test` module.
+test = ["heph/test"]
+
+[dependencies]
+
+[dev-dependencies]
+getrandom         = { version = "0.2.2", default-features = false, features = ["std"] }
+std-logger        = { version = "0.5.3", default-features = false, features = ["nightly"] }
+
+[[test]]
+name    = "functional"
+required-features = ["test"]
+
+[[test]]
+name    = "process_signals"
+# Require full control over the spawned threads.
+harness = false
+required-features = ["test"]
+
+[[test]]
+name    = "regression"
+required-features = ["test"]

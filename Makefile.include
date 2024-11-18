@@ -1,0 +1,141 @@
+# This Makefile is included in the workspace crates using
+# ```
+# include ../Makefile.include
+# ```
+# NOTE: this will generate a working whenever it overwrites a recipe, it's fine
+# to ignore it.
+
+# Test options.
+# You can also use `TEST_FLAGS` to set additonal flags, e.g. `--release`.
+TEST_OPTS = -- --quiet -Z unstable-options --shuffle
+# Supported targets.
+TARGETS ?= x86_64-unknown-linux-gnu
+# Command to run in `dev` target, e.g. `make RUN=check dev`.
+RUN ?= test
+# The location of LLVM tools, rustup doesn't make this easy on us.
+RUSTUP_TARGET=$(strip $(shell rustup show | head -n 1 | sed -e 's/^Default host: \(.*\)/\1/'))
+LLVM_TOOLS_BIN=$(shell rustc --print sysroot)/lib/rustlib/$(RUSTUP_TARGET)/bin
+TARGET_DIR=$(shell cargo metadata --format-version 1 | jq --raw-output '.target_directory')
+
+# Development loop, runs $RUN whenever a source file changes.
+dev:
+	find src/ tests/ examples/ Makefile Cargo.toml | entr -d -c $(MAKE) $(RUN)
+
+test:
+	cargo test --all-features $(TEST_FLAGS) $(TEST_OPTS)
+
+test_sanitizers:
+	$(MAKE) test_sanitizer sanitizer=address
+	$(MAKE) test_sanitizer sanitizer=leak
+	$(MAKE) test_sanitizer sanitizer=memory
+	$(MAKE) test_sanitizer sanitizer=thread
+
+# Run with `make test_sanitizer sanitizer=$sanitizer`, or use `test_sanitizers`.
+test_sanitizer:
+	RUSTDOCFLAGS=-Zsanitizer=$(sanitizer) RUSTFLAGS=-Zsanitizer=$(sanitizer) \
+	cargo test -Zbuild-std --all-features --target x86_64-unknown-linux-gnu $(TEST_FLAGS) $(TEST_OPTS)
+
+# TODO: add TEST_OPTS to this, currently this doesn't work with miri.
+test_miri:
+	cargo miri test --all-features $(TEST_FLAGS)
+
+# Generate coverage report.
+#
+# Install tools using:
+# $ rustup component add llvm-tools
+coverage: export RUSTFLAGS=-C instrument-coverage
+coverage: export LLVM_PROFILE_FILE=$(TARGET_DIR)/coverage/data-%p-%9m.profraw
+coverage: test?=test
+coverage:
+	rm -rf '$(TARGET_DIR)/coverage/' &> /dev/null || true
+	mkdir -p '$(TARGET_DIR)/coverage/'
+	$(MAKE) $(test)
+	$(LLVM_TOOLS_BIN)/llvm-profdata merge --sparse '$(TARGET_DIR)/coverage/'*.profraw -o '$(TARGET_DIR)/coverage/merged.profdata'
+	$(LLVM_TOOLS_BIN)/llvm-cov show \
+		--instr-profile='$(TARGET_DIR)/coverage/merged.profdata' \
+		--show-branches=count \
+		--show-instantiations=false \
+		--show-regions \
+		--show-line-counts-or-regions \
+		--ignore-filename-regex='/rustc/' \
+		--ignore-filename-regex='/.cargo/' \
+		--ignore-filename-regex='/tests/' \
+		--ignore-filename-regex='tests.rs' \
+		--format=html \
+		--output-dir='$(TARGET_DIR)/coverage' \
+		$$( \
+			for file in \
+			$$( \
+				$(MAKE) $(test) --silent 'TEST_FLAGS=--quiet --no-run --message-format=json' \
+					| jq --raw-output 'select(.executable != null) | .filenames[]' \
+					| grep 'target' \
+			); do \
+				printf -- '--object %s ' $$file; \
+			done \
+		)
+	@echo 'See $(TARGET_DIR)/coverage/index.html'
+
+check:
+	cargo check --all-features --all-targets
+
+check_all_targets: $(TARGETS)
+$(TARGETS):
+	cargo check --all-features --all-targets --target $@
+
+# Reasons to allow lints:
+# `cargo-common-metadata`: for `benches` and `tools`.
+# `doc-markdown`: too many false positives.
+# `equatable-if-let`: bad lint.
+# `future-not-send`: we don't want to require all generic parameters to be `Send`.
+# `match-bool`: often less lines of code and I find that use `match` generally
+# strictly better then `if`s.
+# `missing-const-for-fn`: See https://github.com/rust-lang/rust-clippy/issues/4979.
+# `module-name-repetitions`: we re-export various names.
+# `needless-lifetimes`: lifetime serves as documentation.
+# `option-if-let-else`: not idiomatic at all.
+# `use-self`: this is a bad lint.
+#
+# # Could fix these later
+# `enum-glob-use`: used in enum errors.
+# `missing-errors-doc`, `missing-panics-doc`: don't want to do this.
+# Too many warnings:
+#  * `must-use-candidate`.
+#  * `redundant-pub-crate`.
+lint: clippy
+clippy:
+	cargo clippy --all-features -- \
+		--deny clippy::all \
+		--deny clippy::correctness \
+		--deny clippy::style \
+		--deny clippy::complexity \
+		--deny clippy::perf \
+		--deny clippy::pedantic \
+		--deny clippy::nursery \
+		--deny clippy::cargo \
+		--allow clippy::cargo-common-metadata \
+		--allow clippy::doc-markdown \
+		--allow clippy::enum-glob-use \
+		--allow clippy::equatable-if-let \
+		--allow clippy::future-not-send \
+		--allow clippy::match-bool \
+		--allow clippy::missing-const-for-fn \
+		--allow clippy::missing-errors-doc \
+		--allow clippy::missing-panics-doc \
+		--allow clippy::module-name-repetitions \
+		--allow clippy::must-use-candidate \
+		--allow clippy::needless-lifetimes \
+		--allow clippy::new-without-default \
+		--allow clippy::option-if-let-else \
+		--allow clippy::redundant-pub-crate \
+		--allow clippy::use-self \
+
+doc:
+	cargo doc --all-features
+
+doc_private:
+	cargo doc --all-features --document-private-items
+
+clean:
+	cargo clean
+
+.PHONY: dev test test_sanitizers test_sanitizer test_miri coverage check check_all_targets $(TARGETS) lint clippy doc doc_private clean
